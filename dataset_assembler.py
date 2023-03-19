@@ -5,9 +5,11 @@ from PIL import Image
 import random
 
 if __name__ == '__main__':
+    root = "C:/Users/liuke/Mechatronics" # os.getcwd()
+    
     # Locate all vein data directories
     print("Looking for data directories...")
-    directories = os.listdir()
+    directories = os.listdir(root)
     relevant = []
     for name in directories:
         if name.endswith('_arm'):
@@ -15,7 +17,7 @@ if __name__ == '__main__':
     print(f"Found {relevant}")
 
     # Traverse the directories to merge label files and shove into dataset
-    root = os.getcwd()
+    
     data_dict = {}
     print(f"Looking for data images with relevant labels...")
     for dir in relevant: # Go through each person's directory
@@ -56,10 +58,15 @@ if __name__ == '__main__':
     labels = data_dict.values()
     data_pairs = list(zip(images, labels))
 
+    # Parameters
     train_ratio = 0.7
     valid_ratio = 0.15
     test_ratio = 0.15
     downsample_rate = 2
+    output_size = 512
+    ignore_factor = 0.9 # max overlap you are willing to accept
+    dataset_name = "dataset2"
+
     N = len(data_pairs)
     shuffled = random.sample(data_pairs, k = N)
     train_index = int(train_ratio * N)
@@ -71,7 +78,7 @@ if __name__ == '__main__':
 
     dilation_mask = skimage.morphology.disk(5)
 
-    dataset_path = os.path.join(root, "dataset")
+    dataset_path = os.path.join(root, dataset_name)
     if not os.path.isdir(dataset_path):
         os.mkdir(dataset_path)
     for subdir in [('train', train), ('valid', valid), ('test', test)]:
@@ -83,8 +90,6 @@ if __name__ == '__main__':
             # image path
             old_image_path = pair[0]
             label = pair[1]
-            img_name = os.path.basename(pair[0])
-            new_image_path = os.path.join(sub_dir_path, img_name)
 
             # Open the image and check dimensions
             # Downprocess
@@ -97,23 +102,78 @@ if __name__ == '__main__':
                 label = label.transpose()
             
             # Dilation:
+            img_name = os.path.basename(pair[0])
             if img_name.find('sidney') != -1:
                 label = skimage.morphology.dilation(label, footprint=dilation_mask)
 
-            # Crop to 1920
-            small_image = small_image[20:-20, 32:-32]
-            label = label[20:-20, 32:-32]
+            # Crop to 3968 x 1920
+            # small_image = small_image[20:-20, 32:-32]
+            # label = label[20:-20, 32:-32]
+            # Crop to 4032 x 1960
+            # small_image = small_image[20:-20, 32:-32]
+            # label = label[20:-20, 32:-32]
 
             # Downsample by 2
             old_size = small_image.shape
             new_size = (old_size[0] // downsample_rate, old_size[1] // downsample_rate)
             small_image = skimage.transform.resize(small_image, new_size)
-
             label = skimage.transform.resize(label, new_size)
-
-            skimage.io.imsave(new_image_path, (small_image * 255).astype(np.uint8))
             
-            label_name = img_name[:-4] + "_label.npy" 
-            print(label_name, np.count_nonzero(label), label.shape)
-            new_label_path = os.path.join(sub_dir_path, label_name)
-            np.save(new_label_path, label)
+            # Tiling
+            row_progress = 0
+            row_count = 0
+            col_progress = 0
+            col_count = 0
+            max_row = new_size[0]
+            max_col = new_size[1]
+            
+            while (row_progress < max_row):
+                new_row_end = row_progress + output_size
+                # If there is not enough image for another unique tile, add if overlap is not too great 4096 < 4032 + 512 * 0.9
+                if max_row <= new_row_end < max_row + output_size * ignore_factor:
+                    row_progress = max_row - output_size
+                    new_row_end = max_row
+
+                while (col_progress < max_col):
+                    # Advance columns
+                    new_col_end = col_progress + output_size
+                    if max_col <= new_col_end < max_col + output_size * ignore_factor:
+                        col_progress = max_col - output_size
+                        new_col_end = max_col
+
+                    # Crop
+                    crop_image = small_image[row_progress: new_row_end, 
+                                             col_progress: new_col_end]
+                    crop_label = label[row_progress: new_row_end, 
+                                       col_progress: new_col_end]
+                    
+                    # Save image crop
+                    img_name = os.path.basename(pair[0])[:-4] + f"_{row_count}_{col_count}" + ".jpg" 
+                    new_image_path = os.path.join(sub_dir_path, img_name)
+                    skimage.io.imsave(new_image_path, (crop_image * 255).astype(np.uint8))
+            
+                    # Save label crop
+                    label_name = img_name[:-4] + "_label.npy" 
+                    print(label_name, np.count_nonzero(label), crop_image.shape, crop_label.shape)
+                    new_label_path = os.path.join(sub_dir_path, label_name)
+                    np.save(new_label_path, crop_label)
+
+                    col_progress += output_size
+                    col_count += 1
+
+                # Advance the rows
+
+                
+                row_progress += output_size
+                row_count += 1
+
+                # Reset cols
+                col_progress = 0
+                col_count = 0
+
+            # skimage.io.imsave(new_image_path, (small_image * 255).astype(np.uint8))
+            
+            # label_name = img_name[:-4] + "_label.npy" 
+            # print(label_name, np.count_nonzero(label), label.shape)
+            # new_label_path = os.path.join(sub_dir_path, label_name)
+            # np.save(new_label_path, label)
