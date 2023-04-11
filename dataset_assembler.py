@@ -5,8 +5,16 @@ from PIL import Image
 import random
 
 if __name__ == '__main__':
+    # Parameters
     root = "C:/Users/liuke/Mechatronics" # os.getcwd()
-    
+    train_ratio = 0.7
+    valid_ratio = 0.15
+    test_ratio = 0.15
+    downsample_rate = 4
+    output_size = 480
+    ignore_factor = 0.95 # max overlap you are willing to accept
+    dataset_name = "dataset3"
+
     # Locate all vein data directories
     print("Looking for data directories...")
     directories = os.listdir(root)
@@ -17,7 +25,6 @@ if __name__ == '__main__':
     print(f"Found {relevant}")
 
     # Traverse the directories to merge label files and shove into dataset
-    
     data_dict = {}
     print(f"Looking for data images with relevant labels...")
     for dir in relevant: # Go through each person's directory
@@ -57,15 +64,6 @@ if __name__ == '__main__':
     images = data_dict.keys()
     labels = data_dict.values()
     data_pairs = list(zip(images, labels))
-
-    # Parameters
-    train_ratio = 0.7
-    valid_ratio = 0.15
-    test_ratio = 0.15
-    downsample_rate = 2
-    output_size = 512
-    ignore_factor = 0.9 # max overlap you are willing to accept
-    dataset_name = "dataset2"
 
     N = len(data_pairs)
     shuffled = random.sample(data_pairs, k = N)
@@ -109,11 +107,11 @@ if __name__ == '__main__':
             # Crop to 3968 x 1920
             # small_image = small_image[20:-20, 32:-32]
             # label = label[20:-20, 32:-32]
-            # Crop to 4032 x 1960
+            # Crop to 4032 x 1920
             # small_image = small_image[20:-20, 32:-32]
             # label = label[20:-20, 32:-32]
 
-            # Downsample by 2
+            # Downsample
             old_size = small_image.shape
             new_size = (old_size[0] // downsample_rate, old_size[1] // downsample_rate)
             small_image = skimage.transform.resize(small_image, new_size)
@@ -133,6 +131,8 @@ if __name__ == '__main__':
                 if max_row <= new_row_end < max_row + output_size * ignore_factor:
                     row_progress = max_row - output_size
                     new_row_end = max_row
+                elif new_row_end > max_row: # too much overlap, don't make new image
+                    break
 
                 while (col_progress < max_col):
                     # Advance columns
@@ -140,6 +140,8 @@ if __name__ == '__main__':
                     if max_col <= new_col_end < max_col + output_size * ignore_factor:
                         col_progress = max_col - output_size
                         new_col_end = max_col
+                    elif new_col_end > max_col:
+                        break
 
                     # Crop
                     crop_image = small_image[row_progress: new_row_end, 
@@ -162,8 +164,6 @@ if __name__ == '__main__':
                     col_count += 1
 
                 # Advance the rows
-
-                
                 row_progress += output_size
                 row_count += 1
 
